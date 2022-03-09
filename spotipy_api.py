@@ -8,18 +8,36 @@ import random
 import string
 from datetime import datetime as dt
 import pandas as pd
+import numpy as np
+import csv
 
 # Million Playlist Dataset contains playlists created between January 2010 and November 2017
 class EasySpotipy():
-    __ID     = 'fb03f1c6af28420db3441d201a8dea16'
-    __SECRET = '543f352d8d694958abfcfde732a474ac'
+    __ID           = 'fb03f1c6af28420db3441d201a8dea16'
+    __SECRET       = '543f352d8d694958abfcfde732a474ac'
+    __TRACK_ID_MAP = 'data/tracks.csv'
 
-    def __init__(self, id=__ID, secret=__SECRET, max_retries=10):
+    def __init__(self, id=__ID, secret=__SECRET, track_id_map=__TRACK_ID_MAP, max_retries=10):
         creds    = SpotifyClientCredentials(client_id=id, client_secret=secret)
         self.sp_ = spotipy.Spotify(client_credentials_manager=creds, retries=max_retries)
+        # Track ID Map
+        self.track_id_map_ = pd.read_csv(track_id_map, header=None, names=['index', 'ID'])
 
     def getSP(self):
         return self.sp_
+
+    def getNameAndArtistFromTrack(self, track):
+        name = track['name']
+        artists = ''
+        for i, artist in enumerate(track['artists']):
+            if i != 0:
+                artists += ', '
+            artists += artist['name']
+        return name + ' - ' + artists
+
+    def getNameAndArtistFromTrackID(self, ID):
+        track = self.sp_.track(ID)
+        return self.getNameAndArtistFromTrack(track)
 
     # Super rudimentary but adds a level of needed randomness to the query
     def __generateRandomQueryAndOffset(self):
@@ -35,7 +53,14 @@ class EasySpotipy():
         return [query, offset]
 
     '''
-    Return a list of track IDs from a pseudo-random playlist
+    Return a np array of tracks from a pseudo-random playlist.
+    NP Array format:
+    [[track ID, index in map, name - artist(s)],
+     [    ID-2,      index-2,           name-2],
+     [    ID-3,      index-3,           name-3],
+                        ...
+     [    ID-N,      index-N,           name-N]]
+    Will only return tracks that are contained in the track ID map
     '''
     def getRandomPlaylist(self, min_tracks=5, market='US'):
         latest_release_date = '2017-12-00'
@@ -44,10 +69,7 @@ class EasySpotipy():
         while len(tracklist) < min_tracks:
             # The API returns consistent results based on the query, so randomize it
             query_offset=self.__generateRandomQueryAndOffset()
-
-            # query = f'{query_offset[0]}+market:{market}'
-            # TODO - name query and market syntax doesn't work??
-            playlists = self.sp_.search(q=query_offset[0], type='playlist', offset=query_offset[1])['playlists']
+            playlists = self.sp_.search(q=query_offset[0], type='playlist', market=market, offset=query_offset[1])['playlists']
 
             while len(tracklist) < min_tracks and playlists['next']:
                 playlists = self.sp_.next(playlists)['playlists']
@@ -63,41 +85,53 @@ class EasySpotipy():
                     # so drop songs that were created after to help reduce some noise.
                     items = results['items']
                     for song in results['items']:
+                        if not song['track']:
+                            continue
                         release_date = song['track']['album'].get('release_date')
 
-                        if release_date and release_date > latest_release_date:
-                            tracklist.append(song['track']['id'])
+                        if release_date and release_date < latest_release_date:
+                            track_id = song['track']['id']
+                            name_and_artist = self.getNameAndArtistFromTrack(song['track'])
+                            index = self.track_id_map_[self.track_id_map_.ID == track_id].index
+                            if not index.empty: # If the ID was found
+                                entry = np.array([track_id, index[0], name_and_artist], dtype=object)
+                                tracklist.append(entry)
                     if len(tracklist) < min_tracks:
-                        # After filtering out new songs, we don't meet min tracks, drop playlist
+                        # After filtering out new songs, if we don't meet min tracks, drop playlist
                         tracklist.clear()
                     else:
                         break
-        return tracklist
+        return np.array(tracklist)
 
-    def getRandomPlaylistIndices(self, min_tracks=5, market='US'):
-        playlist = self.getRandomPlaylist(min_tracks=min_tracks, market=market)
+    # def getRecommendations(self, seed_artists):
+    #     if len(seed_artists > 5):
+    #         return []
 
-    def getRecommendations(self, seed_artists):
-        if len(seed_artists > 5):
-            return []
+    # def isGenre(self, track, genre):
+    #     return False
 
+    # def EvaluateGenres(self, playlist, genre):
+    #     return 0
 
-    def isGenre(self, track, genre):
-        return False
-
-    def EvaluateGenres(self, playlist, genre):
-        return 0
-
-    def PerformEvaluationMetrics(self, provided_playlists, recommended_playlists, num_trimmed, num_produced):
-        '''
-        '''
-        return 0
+    # def PerformEvaluationMetrics(self, provided_playlists, recommended_playlists, num_trimmed, num_produced):
+    #     '''
+    #     '''
+    #     return 0
 
 def main():
     sp_api = EasySpotipy()
+    NUM_PLAYLISTS=10
+    MIN_TRACKS_PER_PLAYLIST=10
 
-    random_playlist = sp_api.getRandomPlaylistIndices(min_tracks=10)
-    print('Done!')
+    start_time = time.time()
+    for i in range(NUM_PLAYLISTS):
+        playlist_time = time.time()
+        random_playlist = sp_api.getRandomPlaylist(min_tracks=MIN_TRACKS_PER_PLAYLIST)
+        # Col0 is Track ID
+        # Col1 is Track index (in map)
+        # Col2 is Track name
+        print(f'Random playlist #{i} took {playlist_time - time.time()}s:\n{random_playlist[:,2]}')
+    print(f'It took {time.time() - start_time}s to pull {NUM_PLAYLISTS} compatible playlists!')
 
 if __name__ == "__main__":
     main()
