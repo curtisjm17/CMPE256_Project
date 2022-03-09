@@ -62,7 +62,7 @@ class EasySpotipy():
      [    ID-N,      index-N,           name-N]]
     Will only return tracks that are contained in the track ID map
     '''
-    def getRandomPlaylist(self, min_tracks=5, market='US'):
+    def getRandomPlaylist(self, min_tracks=5, max_tracks=200, market='US'):
         latest_release_date = '2017-12-00'
         tracklist = []
 
@@ -96,6 +96,8 @@ class EasySpotipy():
                             if not index.empty: # If the ID was found
                                 entry = np.array([track_id, index[0], name_and_artist], dtype=object)
                                 tracklist.append(entry)
+                        if len(tracklist) >= max_tracks:
+                            break
                     if len(tracklist) < min_tracks:
                         # After filtering out new songs, if we don't meet min tracks, drop playlist
                         tracklist.clear()
@@ -122,15 +124,16 @@ def main():
     sp_api = EasySpotipy()
     NUM_PLAYLISTS=10
     MIN_TRACKS_PER_PLAYLIST=10
+    MAX_TRACKS_PER_PLAYLIST=10
 
     start_time = time.time()
     for i in range(NUM_PLAYLISTS):
         playlist_time = time.time()
-        random_playlist = sp_api.getRandomPlaylist(min_tracks=MIN_TRACKS_PER_PLAYLIST)
+        random_playlist = sp_api.getRandomPlaylist(min_tracks=MIN_TRACKS_PER_PLAYLIST, max_tracks=MAX_TRACKS_PER_PLAYLIST)
         # Col0 is Track ID
         # Col1 is Track index (in map)
         # Col2 is Track name
-        print(f'Random playlist #{i} took {playlist_time - time.time()}s:\n{random_playlist[:,2]}')
+        print(f'Random playlist #{i} took {time.time() - playlist_time}s:\n{random_playlist[:,2]}')
     print(f'It took {time.time() - start_time}s to pull {NUM_PLAYLISTS} compatible playlists!')
 
 if __name__ == "__main__":
