@@ -21,7 +21,7 @@ class EasySpotipy():
         creds    = SpotifyClientCredentials(client_id=id, client_secret=secret)
         self.sp_ = spotipy.Spotify(client_credentials_manager=creds, retries=max_retries)
         # Track ID Map
-        self.track_id_map_ = pd.read_csv(track_id_map, header=None, names=['index', 'ID'])
+        self.track_id_map_ = pd.read_csv(track_id_map, header=None, names=['track_index', 'track_id'])
 
     def getSP(self):
         return self.sp_
@@ -34,6 +34,13 @@ class EasySpotipy():
                 artists += ', '
             artists += artist['name']
         return name + ' - ' + artists
+
+    def getTrackIDFromIndex(self, index):
+        track_id = self.track_id_map_[self.track_id_map_.track_index == index].track_id
+        if not track_id.empty:
+            return track_id.values[0]
+        else:
+            return -1
 
     def getNameAndArtistFromTrackID(self, ID):
         track = self.sp_.track(ID)
@@ -69,10 +76,20 @@ class EasySpotipy():
         while len(tracklist) < min_tracks:
             # The API returns consistent results based on the query, so randomize it
             query_offset=self.__generateRandomQueryAndOffset()
-            playlists = self.sp_.search(q=query_offset[0], type='playlist', market=market, offset=query_offset[1])['playlists']
+            try:
+                playlists = self.sp_.search(q=query_offset[0], type='playlist', market=market, offset=query_offset[1])['playlists']
+            except:
+                # Shhhh HTTP error error, try again!
+                time.sleep(1)
+                continue
 
             while len(tracklist) < min_tracks and playlists['next']:
-                playlists = self.sp_.next(playlists)['playlists']
+                try:
+                    playlists = self.sp_.next(playlists)['playlists']
+                except:
+                    # Shhhh HTTP error, try again!
+                    time.sleep(1)
+                    continue
                 for playlist in playlists['items']:
                     # print(f"Processing the playlist {playlist['name']}")
                     results = self.sp_.playlist_items(playlist['id'])
@@ -81,7 +98,7 @@ class EasySpotipy():
                     if results['total'] < min_tracks:
                         continue
 
-                    # The Million Playlist dataset includes playlists created between 1/2010 and 11/2017,
+                    # The 8 Million Playlist dataset includes playlists created between 1/2010 and 11/2017,
                     # so drop songs that were created after to help reduce some noise.
                     items = results['items']
                     for song in results['items']:
@@ -92,9 +109,9 @@ class EasySpotipy():
                         if release_date and release_date < latest_release_date:
                             track_id = song['track']['id']
                             name_and_artist = self.getNameAndArtistFromTrack(song['track'])
-                            index = self.track_id_map_[self.track_id_map_.ID == track_id].index
+                            index = self.track_id_map_[self.track_id_map_.track_id == track_id].track_index
                             if not index.empty: # If the ID was found
-                                entry = np.array([track_id, index[0], name_and_artist], dtype=object)
+                                entry = np.array([track_id, index.values[0], name_and_artist], dtype=object)
                                 tracklist.append(entry)
                         if len(tracklist) >= max_tracks:
                             break
@@ -104,6 +121,10 @@ class EasySpotipy():
                     else:
                         break
         return np.array(tracklist)
+
+    def addTracksToPlaylist(self, tracks):
+        return
+
 
     # def getRecommendations(self, seed_artists):
     #     if len(seed_artists > 5):
@@ -130,11 +151,20 @@ def main():
     for i in range(NUM_PLAYLISTS):
         playlist_time = time.time()
         random_playlist = sp_api.getRandomPlaylist(min_tracks=MIN_TRACKS_PER_PLAYLIST, max_tracks=MAX_TRACKS_PER_PLAYLIST)
-        # Col0 is Track ID
-        # Col1 is Track index (in map)
-        # Col2 is Track name
+    #     # Col0 is Track ID
+    #     # Col1 is Track index (in map)
+    #     # Col2 is Track name
         print(f'Random playlist #{i} took {time.time() - playlist_time}s:\n{random_playlist[:,2]}')
     print(f'It took {time.time() - start_time}s to pull {NUM_PLAYLISTS} compatible playlists!')
+
+    # sp_api.addTracksToPlaylist('abc')
+    print(sp_api.getTrackIDFromIndex(1))
+    # sp_api.getTrackIDFromIndex(1)
+    # trkmap = sp_api.track_id_map_
+    # track_id = trkmap[trkmap.track_index == 1].track_id
+    # track_index = trkmap[trkmap.track_id == '6I9VzXrHxO9rA9A5euc8Ak'].track_index.values[0]
+    # print(track_id)
+
 
 if __name__ == "__main__":
     main()
